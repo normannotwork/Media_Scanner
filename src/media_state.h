@@ -5,13 +5,13 @@
 
 class MediaState {
     private:
-        std::string json_data_{"{\"audio\":[],\"video\":[],\"images\":[]}"};
+        std::string json_data_{"{\"audio\":[],\"video\":[],\"images\":[]}"}; // можно дополнить
         mutable std::shared_mutex mutex_;
         
     public:
         void set_json(const std::string& json_data) {
             // Эксклюзивный доступ
-            // Пока идет обновление строки, никто не может её читать.
+            // Пока идет обновление строки, никто не может её читать
             std::unique_lock lock(mutex_);
             json_data_ = json_data;
         }

@@ -26,7 +26,7 @@ void MediaScanner::init_extensions() {
 
 std::string MediaScanner::to_lower(const std::string& str) {
     std::string lower_str = str;
-    // Приведено к unsigned char иначе выхода за пределы таблицы ASCII
+    // Приведено к unsigned char иначе выхода за пределы ASCII
     std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(), 
                    [](unsigned char c) { return std::tolower(c); });
     return lower_str;

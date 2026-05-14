@@ -17,7 +17,7 @@ class MediaScanner {
         std::atomic<bool> is_running_{false};
         std::thread worker_thread_;
         
-        // без sleep_for и моментально просыпаться при вызове stop()
+        // без sleep_for и моментально просыпаться при вызове stop
         std::mutex cv_mutex_;
         std::condition_variable cv_;
 
