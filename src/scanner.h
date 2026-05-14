@@ -3,30 +3,37 @@
 #include <string>
 #include <atomic>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <unordered_map>
 
 class MediaScanner {
-public:
-    MediaScanner(const std::string& root_path, int interval_sec, bool http_mode, MediaState& state);
-    ~MediaScanner();
+    private:
+        std::string root_path_;
+        int interval_sec_;
+        bool http_mode_;
+        MediaState& shared_state_;
+        
+        std::atomic<bool> is_running_{false};
+        std::thread worker_thread_;
+        
+        // без sleep_for и моментально просыпаться при вызове stop()
+        std::mutex cv_mutex_;
+        std::condition_variable cv_;
 
-    void start();
-    void stop();
+        std::unordered_map<std::string, std::string> ext_map_;
+        
+    public:
+        MediaScanner(const std::string& root_path, int interval_sec, bool http_mode, MediaState& state);
+        ~MediaScanner();
 
-private:
-    std::string root_path_;
-    int interval_sec_;
-    bool http_mode_;
-    MediaState& shared_state_;
-    
-    std::atomic<bool> is_running_{false};
-    std::thread worker_thread_;
+        void start();
+        void stop();
 
-    std::unordered_map<std::string, std::string> ext_map_;
-
-    void init_extensions();
-    void run();
-    std::string scan_directory();
-    void save_to_file(const std::string& json_data);
-    std::string to_lower(const std::string& str);
+    private:
+        void init_extensions();
+        void run();
+        std::string scan_directory();
+        void save_to_file(const std::string& json_data);
+        std::string to_lower(const std::string& str);
 };

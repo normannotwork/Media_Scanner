@@ -4,19 +4,20 @@
 #include <atomic>
 
 class HttpServer {
-public:
-    HttpServer(int port, MediaState& state);
-    ~HttpServer();
-    
-    void start();
-    void stop();
+    private:
+        int server_fd_;
+        int port_;
+        std::atomic<bool> is_running_{false};
+        MediaState& shared_state_;
 
-private:
-    int server_fd_;
-    int port_;
-    std::atomic<bool> is_running_{false};
-    MediaState& shared_state_;
+    public:
+        HttpServer(int port, MediaState& state);
+        ~HttpServer();
+        
+        void start();
+        void stop();
 
-    void handleClient(int client_socket);
-    void sendHttpResponse(int client_socket, const std::string& status, const std::string& content_type, const std::string& body);
+    private:
+        void handleClient(int client_socket);
+        void sendHttpResponse(int client_socket, const std::string& status, const std::string& content_type, const std::string& body);
 };

@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <cctype>
 #include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
@@ -16,32 +17,36 @@ MediaScanner::MediaScanner(const std::string& root, int interval, bool http_mode
 MediaScanner::~MediaScanner() { stop(); }
 
 void MediaScanner::init_extensions() {
-    std::vector<std::string> images = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp"};
-    std::vector<std::string> audio = {".mp3", ".wav", ".ogg", ".flac", ".m4a"};
-    std::vector<std::string> video = {".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm"};
-
-    for (const auto& ext : images) ext_map_[ext] = "images";
-    for (const auto& ext : audio)  ext_map_[ext] = "audio";
-    for (const auto& ext : video)  ext_map_[ext] = "video";
+    ext_map_ = {
+        {".jpg", "images"}, {".jpeg", "images"}, {".png", "images"}, {".gif", "images"}, {".bmp", "images"}, {".webp", "images"},
+        {".mp3", "audio"}, {".wav", "audio"}, {".ogg", "audio"}, {".flac", "audio"}, {".m4a", "audio"},
+        {".mp4", "video"}, {".avi", "video"}, {".mkv", "video"}, {".mov", "video"}, {".webm", "video"}
+    };
 }
 
 std::string MediaScanner::to_lower(const std::string& str) {
     std::string lower_str = str;
-    std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(), ::tolower);
+    // Приведено к unsigned char иначе выхода за пределы таблицы ASCII
+    std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(), 
+                   [](unsigned char c) { return std::tolower(c); });
     return lower_str;
 }
 
 void MediaScanner::start() {
-    if (!fs::exists(root_path_) || !fs::is_directory(root_path_)) {
-        throw std::runtime_error("Directory does not exist: " + root_path_);
+    std::error_code ec;
+    if (!fs::exists(root_path_, ec) || !fs::is_directory(root_path_, ec)) {
+        throw std::runtime_error("Directory does not exist or inaccessible: " + root_path_);
     }
+    
     is_running_ = true;
     worker_thread_ = std::thread(&MediaScanner::run, this);
     std::cout << "[SCANNER] Started scanning '" << root_path_ << "' every " << interval_sec_ << " seconds.\n";
 }
 
 void MediaScanner::stop() {
+    if (!is_running_) return;
     is_running_ = false;
+    cv_.notify_all(); //Будим поток, если он в состоянии ожидания таймера
     if (worker_thread_.joinable()) worker_thread_.join();
 }
 
@@ -55,68 +60,46 @@ void MediaScanner::run() {
             save_to_file(json_result);
         }
 
-        // Прерываемый сон для корректного выхода
-        for (int i = 0; i < interval_sec_ * 10 && is_running_; ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+        std::unique_lock<std::mutex> lock(cv_mutex_);
+        // Поток засыпает на interval_sec_. Если за это время is_running_ станет false, он проснется досрочно.
+        cv_.wait_for(lock, std::chrono::seconds(interval_sec_), [this] { return !is_running_.load(); });
     }
 }
 
 std::string MediaScanner::scan_directory() {
-    json j;
-    j["audio"] = json::array();
-    j["video"] = json::array();
-    j["images"] = json::array();
+    json j = {{"audio", json::array()}, {"video", json::array()}, {"images", json::array()}};
 
-    // skip_permission_denied - спасает от крашей при чтении root-директорий и кэша
+    // Флаг избавляет от исключений на системных папках
     auto options = fs::directory_options::skip_permission_denied;
-    
-    try {
-        for (const auto& entry : fs::recursive_directory_iterator(root_path_, options)) {
-            if (!entry.is_regular_file()) continue;
+    std::error_code dir_ec;
 
-            std::string ext = to_lower(entry.path().extension().string());
-            auto it = ext_map_.find(ext);
-            
-            if (it != ext_map_.end()) {
-                std::string category = it->second;
-                // Формируем относительный путь
-                std::string rel_path = fs::relative(entry.path(), root_path_).string();
-                j[category].push_back(rel_path);
-            }
-            
-            /*
-            if (it != ext_map_.end()) {
-                std::string category = it->second;
-                std::string rel_path = fs::relative(entry.path(), root_path_).string();
-                
-                uintmax_t size = 0;
-                uint64_t mtime = 0;
-                std::error_code ec; // Не бросаем исключения на битых файлах
-                if (entry.is_regular_file(ec) && !ec) {
-                    size = entry.file_size(ec);
-                    auto ftime = entry.last_write_time(ec);
-                    if (!ec) {
-                        // Безопасное приведение к system_clock для C++17
-                        auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                            ftime - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
-                        mtime = std::chrono::system_clock::to_time_t(sctp);
-                    }
-                }
-
-                j[category].push_back({
-                    {"path", rel_path},
-                    {"size", size},
-                    {"mtime", mtime}
-                });
-            }
-            */
+    for (auto it = fs::recursive_directory_iterator(root_path_, options, dir_ec); 
+         it != fs::recursive_directory_iterator(); 
+         it.increment(dir_ec)) {
+        
+        if (dir_ec) {
+            dir_ec.clear(); // Сбрасываем ошибку (например, битый symlink) и идем дальше
+            continue;
         }
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << "[SCANNER] FS Error: " << e.what() << '\n';
+
+        auto& entry = *it;
+        std::error_code file_ec;
+        if (!entry.is_regular_file(file_ec) || file_ec) continue;
+
+        std::string ext = to_lower(entry.path().extension().string());
+        auto ext_it = ext_map_.find(ext);
+        
+        if (ext_it != ext_map_.end()) {
+            //гарантирует прямые слеши '/' в пути
+            std::string rel_path = fs::relative(entry.path(), root_path_, file_ec).generic_string();
+            if (!file_ec) {
+                j[ext_it->second].push_back(rel_path);
+            }
+        }
     }
 
-    return j.dump();
+    // error_handler_t::replace заменяет невалидные UTF-8 символы в именах файлов (возникают из-за кривых кодировок ОС) 
+    return j.dump(-1, ' ', false, json::error_handler_t::replace);
 }
 
 void MediaScanner::save_to_file(const std::string& json_data) {
@@ -127,9 +110,6 @@ void MediaScanner::save_to_file(const std::string& json_data) {
     std::ofstream out(filepath);
     if (out.is_open()) {
         out << json_data;
-        out.close();
         std::cout << "[SCANNER] Result saved to " << filepath << "\n";
-    } else {
-        std::cerr << "[SCANNER] Failed to open " << filepath << " for writing\n";
     }
 }
