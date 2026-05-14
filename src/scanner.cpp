@@ -61,7 +61,7 @@ void MediaScanner::run() {
         }
 
         std::unique_lock<std::mutex> lock(cv_mutex_);
-        // Поток засыпает на interval_sec_. Если за это время is_running_ станет false, он проснется досрочно.
+        // Поток засыпает на interval_sec_. Если за это время is_running_ станет false, он проснется досрочно
         cv_.wait_for(lock, std::chrono::seconds(interval_sec_), [this] { return !is_running_.load(); });
     }
 }
@@ -98,7 +98,7 @@ std::string MediaScanner::scan_directory() {
         }
     }
 
-    // error_handler_t::replace заменяет невалидные UTF-8 символы в именах файлов (возникают из-за кривых кодировок ОС) 
+    // error_handler_t::replace заменяет невалидные UTF-8 символы в именах файлов
     return j.dump(-1, ' ', false, json::error_handler_t::replace);
 }
 

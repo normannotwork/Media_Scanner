@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
             global_server = &server;
             server.start(); // Цикл accept() блокирует поток. Работает до вызова server.stop()
         } else { 
-            // Поток спит, пока Ctrl+C не разбудит его через main_cv.
+            // Поток спит, пока Ctrl+C не разбудит его через main_cv
             std::unique_lock<std::mutex> lock(main_mutex);
             main_cv.wait(lock, [] { return !keep_running; });
         }
