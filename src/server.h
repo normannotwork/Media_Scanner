@@ -6,14 +6,18 @@
 class HttpServer {
     private:
         int server_fd_;
+        // Поддержка epoll для 10k+ клиентов
+        int epoll_fd_;
         int port_;
         std::atomic<bool> is_running_{false};
         MediaState& shared_state_;
 
+        //  нужно для epoll, чтобы не блокировать поток при ожидании данных
+        void setNonBlocking(int fd);
+
     public:
         HttpServer(int port, MediaState& state);
         ~HttpServer();
-        
         void start();
         void stop();
 

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cctype>
+#include <syslog.h>
 #include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
@@ -40,7 +41,7 @@ void MediaScanner::start() {
     
     is_running_ = true;
     worker_thread_ = std::thread(&MediaScanner::run, this);
-    std::cout << "[SCANNER] Started scanning '" << root_path_ << "' every " << interval_sec_ << " seconds.\n";
+    syslog(LOG_INFO, "[SCANNER] Started scanning '%s' every %d seconds.", root_path_.c_str(), interval_sec_);
 }
 
 void MediaScanner::stop() {
@@ -110,6 +111,6 @@ void MediaScanner::save_to_file(const std::string& json_data) {
     std::ofstream out(filepath);
     if (out.is_open()) {
         out << json_data;
-        std::cout << "[SCANNER] Result saved to " << filepath << "\n";
+        syslog(LOG_INFO, "[SCANNER] Result saved to %s", filepath.c_str());
     }
 }

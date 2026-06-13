@@ -1,0 +1,15 @@
+[Unit]
+Description=Media Scanner HTTP Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/media_scanner --config /etc/media_scanner.conf
+Restart=on-failure
+RestartSec=5
+# увеличиваем лимит файловых дескрипторов
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
