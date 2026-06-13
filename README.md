@@ -78,7 +78,7 @@ sudo cp build/media_scanner /usr/local/bin/
 Скопируйте файл службы:
 
 ```bash
-sudo cp include/media_scanner.conf /etc/systemd/system/
+sudo cp include/media_scanner.service /etc/systemd/system/media_scanner.service
 ```
 
 Отредактируйте следующие параметры:
