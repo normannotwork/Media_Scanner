@@ -44,6 +44,10 @@ cmake --build build --config Release
 
 1. Скопируйте файл конфигурации `include/media_scanner.conf` и переместите туда, откуда служба будет подтягивать файл. Например: `/etc/media_scanner.conf`
 
+```bash
+sudo cp include/media_scanner.conf /etc/media_scanner.conf
+
+```
 
 2. Отредактируйте следующие параметры (обязательно используйте **абсолютный путь** для директории сканирования):
 ```ini
