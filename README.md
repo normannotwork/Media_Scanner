@@ -21,7 +21,7 @@
 
 1. Клонируйте репозиторий и перейдите в его директорию:
 ```bash
-git clone <URL_репозитория>
+sudo git clone <URL_репозитория>
 cd Media_Scanner
 
 ```
@@ -29,8 +29,8 @@ cd Media_Scanner
 
 2. Сгенерируйте файлы сборки и скомпилируйте релизную версию:
 ```bash
-cmake -B build
-cmake --build build --config Release
+sudo cmake -B build
+sudo cmake --build build --config Release
 
 ```
 
