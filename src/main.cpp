@@ -44,7 +44,7 @@ void load_config(const std::string& filepath, std::string& path, int& interval, 
         return;
     }
     std::string line;
-    // Простая лямбда для удаления пробелов по краям
+
     auto trim = [](std::string& s) {
         s.erase(0, s.find_first_not_of(" \t\r\n"));
         s.erase(s.find_last_not_of(" \t\r\n") + 1);
@@ -94,7 +94,6 @@ int main(int argc, char* argv[]) {
             load_config(config_path, path, interval, http_mode, port);
         }
     }
-
     try {
         // Инициализация общего состояния для сканера и сервера
         MediaState state;

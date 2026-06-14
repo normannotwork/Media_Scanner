@@ -121,22 +121,46 @@ void HttpServer::stop() {
 }
 
 void HttpServer::handleClient(int client_socket) {
-    // В событийной модели 1 поток, поэтому обрабатываем и сразу закрываем
     ScopedSocket auto_close{client_socket};
 
-    char buffer[2048];
-    ssize_t bytes_read = read(client_socket, buffer, sizeof(buffer) - 1);
-    
-    if (bytes_read > 0) {
-        buffer[bytes_read] = '\0';
-        std::string request(buffer);
+    std::string request;
+    char buffer[4096];
+    bool headers_complete = false;
+
+    while (true) {
+        ssize_t bytes_read = read(client_socket, buffer, sizeof(buffer));
+        
+        if (bytes_read > 0) {
+            request.append(buffer, bytes_read);
+            
+            if (request.size() > 8192) {
+                break; 
+            }
+            
+            // Ищем конец HTTP-запроса
+            if (request.find("\r\n\r\n") != std::string::npos) {
+                headers_complete = true;
+                break; 
+            }
+        } else if (bytes_read == 0) {
+            // EOF
+            break; // Клиент закрыл соединение
+        } else {
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break; 
+            }
+            return; // Другая ошибка
+        }
+    }
+
+    if (headers_complete) {
         if (request.find("GET /media_files") == 0) {
             sendHttpResponse(client_socket, "200 OK", "application/json", shared_state_.get_json());
         } else {
             sendHttpResponse(client_socket, "404 Not Found", "text/plain", "Endpoint not found. Use GET /media_files");
         }
     }
-    // Сокет автоматически удалится из epoll при вызове close() (через деструктор ScopedSocket)
 }
 
 void HttpServer::sendHttpResponse(int client_socket, const std::string& status, const std::string& content_type, const std::string& body) {
@@ -144,5 +168,32 @@ void HttpServer::sendHttpResponse(int client_socket, const std::string& status, 
                        "Content-Type: " + content_type + "\r\n"
                        "Content-Length: " + std::to_string(body.length()) + "\r\n"
                        "Connection: close\r\n\r\n" + body;
-    send(client_socket, resp.data(), resp.length(), MSG_NOSIGNAL);
+
+    const char* data_ptr = resp.data();
+    size_t bytes_left = resp.length();
+
+    // Отправляем данные в цикле, пока не уйдет весь объем
+    while (bytes_left > 0) {
+        ssize_t bytes_sent = send(client_socket, data_ptr, bytes_left, MSG_NOSIGNAL);
+        
+     if (bytes_sent > 0) {
+            data_ptr += bytes_sent;
+            bytes_left -= bytes_sent;
+        } else if (bytes_sent == 0) {
+            break; 
+        } else {
+            // хотим завыыершить соединение, если произошла ошибка, но не из-за прерывания или блокировки
+            if (errno == EINTR) {
+                continue;
+            }
+            // сокет не готов к отправке, нужно подождать
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                usleep(1000);
+                continue;
+            }
+            break; 
+        }
+    }
 }
+
+
