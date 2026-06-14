@@ -22,7 +22,7 @@
 1. Клонируйте репозиторий и перейдите в его директорию:
 ```bash
 git clone <URL_репозитория>
-cd media-scanner
+cd Media_Scanner
 
 ```
 
