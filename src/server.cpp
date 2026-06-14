@@ -136,21 +136,20 @@ void HttpServer::handleClient(int client_socket) {
             request.append(buffer, bytes_read);
             
             if (request.size() > 8192) {
-                sendHttpResponse(client_socket, "413 Payload Too Large", "text/plain", "Request too large");
+                sendHttpResponse(client_socket, "413 Payload Too Large", "text/plain", "Request too large", false);
                 break; 
             }
             
-            // Ищем конец HTTP-запроса
             if (request.find("\r\n\r\n") != std::string::npos) {
                 syslog(LOG_INFO, "Headers received from client");
                 headers_complete = true;
                 break; 
             }
         } else if (bytes_read == 0) {
-            // EOF
-            break; // Клиент закрыл соединение
+            // Клиент сам закрыл соединение (EOF)
+            break; 
         } else {
-            if (errno == EINTR){
+            if (errno == EINTR) {
                 syslog(LOG_INFO, "Read interrupted, retrying");
                 continue;
             }
@@ -158,50 +157,52 @@ void HttpServer::handleClient(int client_socket) {
                 syslog(LOG_INFO, "Handling client with pending data");
                 break; 
             }
-            return; // Другая ошибка
+            return; // Ошибка сокета — выходим, auto_close закроет сокет
         }
     }
 
     if (headers_complete) {
+        // Проверяем, хочет ли клиент держать соединение
+        bool keep_alive = (request.find("Connection: close") == std::string::npos);
+
         if (request.find("GET /media_files") == 0) {
             syslog(LOG_INFO, "Sending media files list");
-            sendHttpResponse(client_socket, "200 OK", "application/json", shared_state_.get_json());
+            sendHttpResponse(client_socket, "200 OK", "application/json", shared_state_.get_json(), keep_alive);
         } else {
             syslog(LOG_INFO, "Endpoint not found");
-            sendHttpResponse(client_socket, "404 Not Found", "text/plain", "Endpoint not found. Use GET /media_files");
+            sendHttpResponse(client_socket, "404 Not Found", "text/plain", "Endpoint not found. Use GET /media_files", keep_alive);
+        }
+        if (keep_alive) {
+            auto_close.fd = -1; // Зануляем fd, деструктор ScopedSocket НЕ закроет сокет.
+            syslog(LOG_INFO, "Connection kept alive for next epoll event");
         }
     }
 }
 
-void HttpServer::sendHttpResponse(int client_socket, const std::string& status, const std::string& content_type, const std::string& body) {
+void HttpServer::sendHttpResponse(int client_socket, const std::string& status, 
+                                  const std::string& content_type, const std::string& body, 
+                                  bool keep_alive = false) {
     std::string resp = "HTTP/1.1 " + status + "\r\n"
                        "Content-Type: " + content_type + "\r\n"
                        "Content-Length: " + std::to_string(body.length()) + "\r\n"
-                       "Connection: close\r\n\r\n" + body;
+                       "Connection: " + (keep_alive ? "keep-alive" : "close") + "\r\n\r\n" + body;
 
     const char* data_ptr = resp.data();
     size_t bytes_left = resp.length();
 
-    // Отправляем данные в цикле, пока не уйдет весь объем
     while (bytes_left > 0) {
         ssize_t bytes_sent = send(client_socket, data_ptr, bytes_left, MSG_NOSIGNAL);
-        
-     if (bytes_sent > 0) {
+        if (bytes_sent > 0) {
             data_ptr += bytes_sent;
             bytes_left -= bytes_sent;
             syslog(LOG_INFO, "Data sent to client (%zd bytes), remaining: %zd", bytes_sent, bytes_left);
         } else if (bytes_sent == 0) {
             break; 
         } else {
-            // хотим завыыершить соединение, если произошла ошибка, но не из-за прерывания или блокировки
-            if (errno == EINTR) {
-                syslog(LOG_INFO, "Send interrupted, retrying");
-                continue;
-            }
-            // сокет не готов к отправке, нужно подождать
+            if (errno == EINTR) continue; // Interrupted, retry
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 syslog(LOG_INFO, "Send would block, waiting");
-                usleep(1000);
+                usleep(1000); // Ждем немного перед повторной попыткой
                 continue;
             }
             break; 
