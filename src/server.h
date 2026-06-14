@@ -23,5 +23,5 @@ class HttpServer {
 
     private:
         void handleClient(int client_socket);
-        void sendHttpResponse(int client_socket, const std::string& status, const std::string& content_type, const std::string& body);
+        void sendHttpResponse(int client_socket, const std::string& status, const std::string& content_type, const std::string& body, bool keep_alive = true);
 };
