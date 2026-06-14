@@ -181,7 +181,7 @@ void HttpServer::handleClient(int client_socket) {
 
 void HttpServer::sendHttpResponse(int client_socket, const std::string& status, 
                                   const std::string& content_type, const std::string& body, 
-                                  bool keep_alive = false) {
+                                  bool keep_alive) {
     std::string resp = "HTTP/1.1 " + status + "\r\n"
                        "Content-Type: " + content_type + "\r\n"
                        "Content-Length: " + std::to_string(body.length()) + "\r\n"
