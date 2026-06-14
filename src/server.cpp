@@ -77,6 +77,7 @@ void HttpServer::start() {
                 // Новое входящее соединение
                 while (true) {
                     int client_socket = accept(server_fd_, nullptr, nullptr);
+                    syslog(LOG_INFO, "New client connected");
                     if (client_socket < 0) {
                         break; // Больше нет входящих
                     }
@@ -91,6 +92,7 @@ void HttpServer::start() {
                     client_event.data.fd = client_socket;
 
                     if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_socket, &client_event) == 0) {
+                        syslog(LOG_INFO, "Client added to epoll for reading");
                         // Успешно добавили в epoll, забираем FD из-под авто-закрытия
                         auto_close.fd = -1; 
                     } else {
@@ -98,6 +100,7 @@ void HttpServer::start() {
                     }
                 }
             } else {
+                syslog(LOG_INFO, "Handling client");
                 // Готовность к чтению от клиента
                 handleClient(events[i].data.fd);
             }
@@ -129,16 +132,17 @@ void HttpServer::handleClient(int client_socket) {
 
     while (true) {
         ssize_t bytes_read = read(client_socket, buffer, sizeof(buffer));
-        
         if (bytes_read > 0) {
             request.append(buffer, bytes_read);
             
             if (request.size() > 8192) {
+                sendHttpResponse(client_socket, "413 Payload Too Large", "text/plain", "Request too large");
                 break; 
             }
             
             // Ищем конец HTTP-запроса
             if (request.find("\r\n\r\n") != std::string::npos) {
+                syslog(LOG_INFO, "Headers received from client");
                 headers_complete = true;
                 break; 
             }
@@ -146,8 +150,12 @@ void HttpServer::handleClient(int client_socket) {
             // EOF
             break; // Клиент закрыл соединение
         } else {
-            if (errno == EINTR) continue;
+            if (errno == EINTR){
+                syslog(LOG_INFO, "Read interrupted, retrying");
+                continue;
+            }
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                syslog(LOG_INFO, "Handling client with pending data");
                 break; 
             }
             return; // Другая ошибка
@@ -156,8 +164,10 @@ void HttpServer::handleClient(int client_socket) {
 
     if (headers_complete) {
         if (request.find("GET /media_files") == 0) {
+            syslog(LOG_INFO, "Sending media files list");
             sendHttpResponse(client_socket, "200 OK", "application/json", shared_state_.get_json());
         } else {
+            syslog(LOG_INFO, "Endpoint not found");
             sendHttpResponse(client_socket, "404 Not Found", "text/plain", "Endpoint not found. Use GET /media_files");
         }
     }
@@ -179,15 +189,18 @@ void HttpServer::sendHttpResponse(int client_socket, const std::string& status, 
      if (bytes_sent > 0) {
             data_ptr += bytes_sent;
             bytes_left -= bytes_sent;
+            syslog(LOG_INFO, "Data sent to client (%zd bytes), remaining: %zd", bytes_sent, bytes_left);
         } else if (bytes_sent == 0) {
             break; 
         } else {
             // хотим завыыершить соединение, если произошла ошибка, но не из-за прерывания или блокировки
             if (errno == EINTR) {
+                syslog(LOG_INFO, "Send interrupted, retrying");
                 continue;
             }
             // сокет не готов к отправке, нужно подождать
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                syslog(LOG_INFO, "Send would block, waiting");
                 usleep(1000);
                 continue;
             }
